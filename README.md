@@ -92,7 +92,3 @@ tsc -p .
 ```
 
 `tsc` needs `.claude-plugin/types/`, which Claude Code generates when it loads the mod. It is gitignored.
-
-## License
-
-No license has been chosen yet.
