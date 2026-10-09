@@ -1,0 +1,12 @@
+{
+  "name": "claude-skill-args",
+  "owner": { "name": "Lloyd van Zaalen" },
+  "metadata": { "description": "The skill-args mod for Claude Code" },
+  "plugins": [
+    {
+      "name": "skill-args",
+      "source": "./",
+      "description": "Enumerated !value arguments for user-invoked skills, with autocomplete, clickable cards and prompts for missing values"
+    }
+  ]
+}
