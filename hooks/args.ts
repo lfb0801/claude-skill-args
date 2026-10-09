@@ -53,7 +53,11 @@ export const specOf = (source: string): Arg[] | undefined => {
   const fm = frontmatter(source)
   const declared = asMap(asMap(fm.metadata)?.args)
   if (fm['disable-model-invocation'] !== true || !declared) return undefined
-  const names = Array.isArray(fm.arguments) ? fm.arguments.map(String) : typeof fm.arguments === 'string' ? fm.arguments.split(/\s+/) : []
+  const names = Array.isArray(fm.arguments)
+    ? fm.arguments.map(String)
+    : typeof fm.arguments === 'string'
+      ? fm.arguments.split(/\s+/)
+      : Object.keys(declared)
   const spec = names.filter(Boolean).map((name): Arg => {
     const meta = asMap(declared[name]) ?? {}
     const options = Object.entries(asMap(meta.options) ?? {}).map(([value, text]) => optionOf(value, text))
@@ -100,7 +104,13 @@ export const parse = (spec: Arg[], args: string): Parsed => {
 export const missing = (spec: Arg[], parsed: Parsed) =>
   spec.filter(a => !a.optional && (a.options ? !(a.name in parsed.values) : !parsed.rest))
 
-const quote = (value: string) => (/^[^\s"'\\]+$/.test(value) ? value : `"${value.replace(/(["\\])/g, '\\$1')}"`)
+// Claude Code splits skill arguments shell-style, but keeps backslashes inside double quotes,
+// so a value with " or \ goes in single quotes, splicing each ' in as '"'"'.
+const quote = (value: string) => {
+  if (/^[^\s"'\\]+$/.test(value)) return value
+  if (!/["\\]/.test(value)) return `"${value}"`
+  return `'${value.replace(/'/g, `'"'"'`)}'`
+}
 
 export const canonical = (spec: Arg[], parsed: Parsed) =>
   spec.map(a => quote(a.options ? parsed.values[a.name] ?? '' : parsed.rest)).join(' ')
