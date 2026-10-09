@@ -90,7 +90,7 @@ export const parse = (spec: Arg[], args: string): Parsed => {
     if (taken.has(i)) return
     const arg =
       spec.find(a => a.options && a.open && !(a.name in values)) ??
-      spec.find(a => a.options && !(a.name in values) && !(a.name in invalid))
+      spec.find(a => a.options && !a.optional && !(a.name in values) && !(a.name in invalid))
     if (!arg) return
     if (arg.open) values[arg.name] = value
     else invalid[arg.name] = value

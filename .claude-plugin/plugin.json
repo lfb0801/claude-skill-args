@@ -1,6 +1,6 @@
 {
   "name": "skill-args",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Enumerated !value arguments for user-invoked skills, with autocomplete, clickable cards and prompts for missing values",
   "author": { "name": "Lloyd van Zaalen" },
   "repository": "https://github.com/lfb0801/claude-skill-args",
