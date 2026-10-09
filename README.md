@@ -132,7 +132,7 @@ flowchart TD
     D -- "a choice" --> E["Ask for it:<br/>question dialog in the terminal,<br/>cards on the desktop"]
     E --> D
     D -- "the free text" --> F["Put your text back in the prompt box"]
-    D -- "nothing" --> G["Rewrite to positional arguments:<br/>ruthless &quot;&quot; &quot;the redesign&quot;"]
+    D -- "nothing" --> G["Rewrite to positional arguments:<br/>ruthless #quot;#quot; #quot;the redesign#quot;"]
     G --> H["Claude Code splits them shell-style"]
     H --> I["$intensity = ruthless<br/>$focus = (empty)<br/>$target = the redesign"]
 ```
