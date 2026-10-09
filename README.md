@@ -95,4 +95,4 @@ tsc -p .
 
 ## License
 
-No license has been chosen yet.
+Mozilla Public License 2.0, see [LICENSE](LICENSE). You may include this mod in any product, paid or not; the mod's own files, and changes to them, stay available under MPL-2.0.
