@@ -105,7 +105,7 @@ Rules:
 - `arguments:` sets the positional order and enables `$name`. Leave it out and the order of `metadata.args` is used; then use `$0`, `$1`, and so on.
 - Every argument is required unless it sets `optional: true`.
 - `!values` can be written anywhere after the command, in any order.
-- An unknown `!value` fills the first empty open argument. If there is none, it counts as an invalid value for the first empty strict argument, which is then asked again. Otherwise it stays in the free text.
+- An unknown `!value` fills the first empty open argument. If there is none, it counts as an invalid value for the first empty required strict argument, which is then asked again. Otherwise it stays in the free text.
 - Prefer single-codepoint emoji in descriptions.
 - Skills without `metadata.args` behave exactly as before.
 

@@ -86,6 +86,8 @@ describe('parse', () => {
   test('an unknown value with nowhere to go stays in the target', () => {
     expect(parse(spec, '!ruthless !scope !nope my idea').rest).toBe('!nope my idea')
     expect(parse(spec, 'say hello! to me').rest).toBe('say hello! to me')
+    const optional = spec.map(a => (a.name === 'intensity' ? { ...a, optional: true as const } : a))
+    expect(parse(optional, '!scope !nope my idea')).toEqual({ values: { focus: 'scope' }, rest: '!nope my idea', invalid: {} })
   })
 
   test('asks only for unfilled required arguments', () => {
