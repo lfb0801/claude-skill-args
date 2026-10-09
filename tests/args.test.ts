@@ -96,7 +96,13 @@ describe('parse', () => {
 
   test('hands the skill quoted positional arguments', () => {
     expect(canonical(spec, parse(spec, 'my idea !scope !ruthless'))).toBe('ruthless scope "my idea"')
-    expect(canonical(spec, parse(spec, '!gentle say "hi" to C:\\x'))).toBe('gentle "" "say \\"hi\\" to C:\\\\x"')
+    expect(canonical(spec, parse(spec, '!gentle say "hi" to C:\\x'))).toBe(`gentle "" 'say "hi" to C:\\x'`)
+    expect(canonical(spec, parse(spec, `!gentle it's "done"`))).toBe(`gentle "" 'it'"'"'s "done"'`)
+  })
+
+  test('takes the argument order from metadata.args when arguments is not declared', () => {
+    const bare = specOf(DEMO.replace('arguments: [intensity, focus, target]\n', ''))!
+    expect(bare.map(a => a.name)).toEqual(['intensity', 'focus', 'target'])
   })
 })
 
