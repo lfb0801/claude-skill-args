@@ -11,13 +11,13 @@ A Claude Code mod that lets any skill you write offer a fixed set of choices as 
 A skill normally gets one blob of free text and has to guess what the user meant:
 
 ```
-/review be really harsh, mostly about scope, the onboarding redesign
+/review take a detailed look at scope for the onboarding redesign
 ```
 
 With skill-args, you declare the choices once in your skill's frontmatter. Users pick them with `!value`, and your skill reads each one as its own argument:
 
 ```
-/review !ruthless !scope the onboarding redesign
+/review !thorough !scope the onboarding redesign
 ```
 
 | | Without skill-args | With skill-args |
@@ -25,7 +25,7 @@ With skill-args, you declare the choices once in your skill's frontmatter. Users
 | User | Has to remember what the skill understands | Picks from autocomplete or cards |
 | Missing input | The skill guesses or asks halfway through | Asked before the skill starts |
 | Choices | Free-form and easy to misspell | Picked from a declared list |
-| Skill body | Parses `$ARGUMENTS` itself | Reads `$intensity`, `$focus`, `$target` |
+| Skill body | Parses `$ARGUMENTS` itself | Reads `$depth`, `$focus`, `$target` |
 
 > [!TIP]
 > Your skill body doesn't change. skill-args only rewrites what the user typed into the standard positional arguments that Claude Code already supports, so `$name`, `$0` and `$ARGUMENTS[0]` work as usual.
@@ -68,25 +68,25 @@ Three things in the frontmatter turn it on:
 name: review
 description: Review a piece of work
 disable-model-invocation: true        # 1. only you can invoke it
-arguments: [intensity, focus, target] # 2. the positional order
+arguments: [depth, focus, target]     # 2. the positional order
 metadata:
   args:                               # 3. the choices
-    intensity:
-      question: How hard should it push?
+    depth:
+      question: How detailed should the review be?
       options:
-        gentle: 🌱 Explore without much pressure
-        ruthless: 🔥 Aggressively challenge every weakness
+        brief: 🌱 Quick overview of key points
+        thorough: 🔎 Detailed review of each aspect
     focus:
       optional: true
       open: true
       options:
-        scope: 🎯 Question what is in and what is out
-        risks: 🚨 Hunt for what could go wrong
+        scope: 🎯 Review what is in and what is out
+        risks: 🚨 Identify potential issues
     target:
       question: What should be reviewed?
 ---
 
-Review $target. Intensity: $intensity. Focus: $focus.
+Review $target. Depth: $depth. Focus: $focus.
 ```
 
 > [!IMPORTANT]
@@ -111,30 +111,30 @@ Rules:
 
 ### What the skill receives
 
-| Typed | `$intensity` / `$0` | `$focus` / `$1` | `$target` / `$2` |
+| Typed | `$depth` / `$0` | `$focus` / `$1` | `$target` / `$2` |
 |---|---|---|---|
-| `/review !ruthless !scope the redesign` | `ruthless` | `scope` | `the redesign` |
-| `/review the redesign !gentle` | `gentle` | *(empty)* | `the redesign` |
-| `/review !gentle !tone my notes` | `gentle` | `tone` *(open)* | `my notes` |
-| `/review !gentle she said "it's done"` | `gentle` | *(empty)* | `she said "it's done"` |
+| `/review !thorough !scope the redesign` | `thorough` | `scope` | `the redesign` |
+| `/review the redesign !brief` | `brief` | *(empty)* | `the redesign` |
+| `/review !brief !tone my notes` | `brief` | `tone` *(open)* | `my notes` |
+| `/review !brief she said "it's done"` | `brief` | *(empty)* | `she said "it's done"` |
 
 > [!NOTE]
-> `$ARGUMENTS` is the whole rewritten string, such as `ruthless scope "the redesign"`, not what the user typed. Use `$name` or `$N` for single values.
+> `$ARGUMENTS` is the whole rewritten string, such as `thorough scope "the redesign"`, not what the user typed. Use `$name` or `$N` for single values.
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    A["You type /review the redesign !ruthless"] --> B{"Does the skill declare metadata.args?"}
+    A["You type /review the redesign !thorough"] --> B{"Does the skill declare metadata.args?"}
     B -- no --> Z["Runs untouched"]
     B -- yes --> C["Match each !value to an argument.<br/>Plain words become the free text."]
     C --> D{"Anything required missing?"}
     D -- "a choice" --> E["Ask for it:<br/>question dialog in the terminal,<br/>cards on the desktop"]
     E --> D
     D -- "the free text" --> F["Put your text back in the prompt box"]
-    D -- "nothing" --> G["Rewrite to positional arguments:<br/>ruthless #quot;#quot; #quot;the redesign#quot;"]
+    D -- "nothing" --> G["Rewrite to positional arguments:<br/>thorough #quot;#quot; #quot;the redesign#quot;"]
     G --> H["Claude Code splits them shell-style"]
-    H --> I["$intensity = ruthless<br/>$focus = (empty)<br/>$target = the redesign"]
+    H --> I["$depth = thorough<br/>$focus = (empty)<br/>$target = the redesign"]
 ```
 
 Step by step:
@@ -151,20 +151,19 @@ These wireframes use the review skill above.
 **Terminal: autocomplete while typing**
 
 ```
-> /review !r
-  !ruthless    Aggressively challenge every weakness
-  !risks       Hunt for what could go wrong
+> /review !t
+  !thorough    Detailed review of each aspect
 ```
 
 **Terminal: a required choice is missing on submit**
 
 ```
- ☐ intensity
+ ☐ depth
 
- How hard should it push?
+ How detailed should the review be?
 
- ❯ 1. gentle — Explore without much pressure
-   2. ruthless — Aggressively challenge every weakness
+ ❯ 1. brief — Quick overview of key points
+   2. thorough — Detailed review of each aspect
    3. Type something.
 
  Enter to select · Esc to cancel
@@ -175,11 +174,11 @@ An invalid answer is asked again. Esc cancels and puts your text back in the pro
 **Desktop app: cards above the prompt while typing**
 
 ```
- How hard should it push? Click to add it, or type !gentle.
+ How detailed should the review be? Click to add it, or type !brief.
  ╭────────────────────────────────╮  ╭────────────────────────────────╮
- │ 🌱 gentle                      │  │ 🔥 ruthless                    │
- │ Explore without much pressure  │  │ Aggressively challenge every   │
- │                                │  │ weakness                       │
+ │ 🌱 brief                       │  │ 🔎 thorough                    │
+ │ Quick overview of key points   │  │ Detailed review of each aspect │
+ │                                │  │                                │
  ╰────────────────────────────────╯  ╰────────────────────────────────╯
  > /review the redesign
 ```
@@ -187,9 +186,9 @@ An invalid answer is asked again. Esc cancels and puts your text back in the pro
 **Desktop app: a required choice is missing on submit**
 
 ```
- /review · How hard should it push?                              Cancel
+ /review · How detailed should the review be?                    Cancel
  ╭────────────────────────────────╮  ╭────────────────────────────────╮
- │ 🌱 gentle                      │  │ 🔥 ruthless                    │
+ │ 🌱 brief                       │  │ 🔎 thorough                    │
  ...
 ```
 
