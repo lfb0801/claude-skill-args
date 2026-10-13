@@ -58,7 +58,7 @@ const Cards: ClientModule<Props, State> = (props, surface) => {
       <Box flexDirection="column">
         {options.map((o, i) => (
           <Box key={o.value}>
-            <Text color={i === hover ? 'claude' : undefined}>{`!${o.value}`.padEnd(pad)}</Text>
+            <Text color={i === hover ? 'claude' : undefined}>{`$${o.value}`.padEnd(pad)}</Text>
             <Text dimColor wrap="truncate-end">
               {o.description}
             </Text>

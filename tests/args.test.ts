@@ -71,35 +71,43 @@ describe('frontmatter', () => {
 })
 
 describe('parse', () => {
-  test('takes values only from !words, anywhere, the rest is the target', () => {
-    expect(parse(spec, 'my idea !scope !ruthless')).toEqual({ values: { focus: 'scope', intensity: 'ruthless' }, rest: 'my idea', invalid: {} })
+  test('uses dollar choices while keeping bangs, embedded dollars and escaped dollars as free text', () => {
+    const args = '$ruthless $scope !gentle cost$gentle \\$balanced'
+    expect(parse(spec, args)).toEqual({
+      values: { intensity: 'ruthless', focus: 'scope' }, rest: '!gentle cost$gentle \\$balanced', invalid: {},
+    })
+    expect(parse(spec, '!ruthless !scope the redesign').values).toEqual({})
+  })
+
+  test('takes values only from $words, anywhere, the rest is the target', () => {
+    expect(parse(spec, 'my idea $scope $ruthless')).toEqual({ values: { focus: 'scope', intensity: 'ruthless' }, rest: 'my idea', invalid: {} })
     expect(parse(spec, 'ruthless my idea')).toEqual({ values: {}, rest: 'ruthless my idea', invalid: {} })
   })
 
   test('an unknown value fills an open argument first and is invalid for a strict one otherwise', () => {
-    expect(parse(spec, 'my idea !strategy')).toEqual({ values: { focus: 'strategy' }, rest: 'my idea', invalid: {} })
-    expect(parse(spec, 'my idea !scope !nope')).toEqual({ values: { focus: 'scope' }, rest: 'my idea', invalid: { intensity: 'nope' } })
-    expect(parse(spec, '!ruthless my idea !security').values).toEqual({ intensity: 'ruthless', focus: 'security' })
-    expect(parse(spec, '!security !ruthless idea').values).toEqual({ intensity: 'ruthless', focus: 'security' })
+    expect(parse(spec, 'my idea $strategy')).toEqual({ values: { focus: 'strategy' }, rest: 'my idea', invalid: {} })
+    expect(parse(spec, 'my idea $scope $nope')).toEqual({ values: { focus: 'scope' }, rest: 'my idea', invalid: { intensity: 'nope' } })
+    expect(parse(spec, '$ruthless my idea $security').values).toEqual({ intensity: 'ruthless', focus: 'security' })
+    expect(parse(spec, '$security $ruthless idea').values).toEqual({ intensity: 'ruthless', focus: 'security' })
   })
 
   test('an unknown value with nowhere to go stays in the target', () => {
-    expect(parse(spec, '!ruthless !scope !nope my idea').rest).toBe('!nope my idea')
+    expect(parse(spec, '$ruthless $scope $nope my idea').rest).toBe('$nope my idea')
     expect(parse(spec, 'say hello! to me').rest).toBe('say hello! to me')
     const optional = spec.map(a => (a.name === 'intensity' ? { ...a, optional: true as const } : a))
-    expect(parse(optional, '!scope !nope my idea')).toEqual({ values: { focus: 'scope' }, rest: '!nope my idea', invalid: {} })
+    expect(parse(optional, '$scope $nope my idea')).toEqual({ values: { focus: 'scope' }, rest: '$nope my idea', invalid: {} })
   })
 
   test('asks only for unfilled required arguments', () => {
     expect(missing(spec, parse(spec, '')).map(a => a.name)).toEqual(['intensity', 'target'])
-    expect(missing(spec, parse(spec, '!ruthless my idea')).map(a => a.name)).toEqual([])
-    expect(missing(spec, parse(spec, '!ruthless')).map(a => a.name)).toEqual(['target'])
+    expect(missing(spec, parse(spec, '$ruthless my idea')).map(a => a.name)).toEqual([])
+    expect(missing(spec, parse(spec, '$ruthless')).map(a => a.name)).toEqual(['target'])
   })
 
   test('hands the skill quoted positional arguments', () => {
-    expect(canonical(spec, parse(spec, 'my idea !scope !ruthless'))).toBe('ruthless scope "my idea"')
-    expect(canonical(spec, parse(spec, '!gentle say "hi" to C:\\x'))).toBe(`gentle "" 'say "hi" to C:\\x'`)
-    expect(canonical(spec, parse(spec, `!gentle it's "done"`))).toBe(`gentle "" 'it'"'"'s "done"'`)
+    expect(canonical(spec, parse(spec, 'my idea $scope $ruthless'))).toBe('ruthless scope "my idea"')
+    expect(canonical(spec, parse(spec, '$gentle say "hi" to C:\\x'))).toBe(`gentle "" 'say "hi" to C:\\x'`)
+    expect(canonical(spec, parse(spec, `$gentle it's "done"`))).toBe(`gentle "" 'it'"'"'s "done"'`)
   })
 
   test('takes the argument order from metadata.args when arguments is not declared', () => {
@@ -110,49 +118,49 @@ describe('parse', () => {
 
 describe('autocomplete', () => {
   test('finds a skill after prose and matches choices before or after it', () => {
-    const text = '!scope Please /demo the onboarding redesign !r'
-    expect(suggestAt(text)).toEqual(['!ruthless'])
-    expect(suggestAt('Please /demo')).toEqual(['/demo !gentle', '/demo !balanced', '/demo !ruthless'])
-    expect(suggestAt('!r Please /demo the redesign', 2)).toEqual(['!ruthless', '!risks'])
+    const text = '$scope Please /demo the onboarding redesign $r'
+    expect(suggestAt(text)).toEqual(['$ruthless'])
+    expect(suggestAt('Please /demo')).toEqual(['/demo $gentle', '/demo $balanced', '/demo $ruthless'])
+    expect(suggestAt('$r Please /demo the redesign', 2)).toEqual(['$ruthless', '$risks'])
   })
 
   test('offers the first argument right after the command', () => {
-    expect(suggestAt('/demo')).toEqual(['/demo !gentle', '/demo !balanced', '/demo !ruthless'])
+    expect(suggestAt('/demo')).toEqual(['/demo $gentle', '/demo $balanced', '/demo $ruthless'])
   })
 
-  test('filters a partial !value across the arguments still open', () => {
-    expect(suggestAt('/demo idea !r')).toEqual(['!ruthless', '!risks'])
-    expect(suggestAt('/demo !ruthless idea !r')).toEqual(['!risks'])
-    expect(suggestAt('/demo !strategy !')).toEqual(['!gentle', '!balanced', '!ruthless'])
+  test('filters a partial $value across the arguments still open', () => {
+    expect(suggestAt('/demo idea $r')).toEqual(['$ruthless', '$risks'])
+    expect(suggestAt('/demo $ruthless idea $r')).toEqual(['$risks'])
+    expect(suggestAt('/demo $strategy $')).toEqual(['$gentle', '$balanced', '$ruthless'])
   })
 
   test('chains to the next argument after a complete value', () => {
-    expect(suggestAt('/demo !ruthless')).toEqual(['!ruthless !scope', '!ruthless !risks', '!ruthless !alternatives'])
-    expect(suggestAt('/demo !ruthless !scope')).toEqual([])
+    expect(suggestAt('/demo $ruthless')).toEqual(['$ruthless $scope', '$ruthless $risks', '$ruthless $alternatives'])
+    expect(suggestAt('/demo $ruthless $scope')).toEqual([])
   })
 
   test('leaves free text, mid-word cursors and other prompts alone', () => {
     expect(suggestAt('/demo r')).toEqual([])
-    expect(suggestAt('/demo !ru tail', 8)).toEqual([])
-    expect(suggestAt('/demo !ru tail', 9)).toEqual(['!ruthless'])
-    expect(suggestAt('/demo !ruthless my idea !rx')).toEqual([])
-    expect(suggest(spec, 'idea !r', 5, 7, '!r')).toEqual([])
+    expect(suggestAt('/demo $ru tail', 8)).toEqual([])
+    expect(suggestAt('/demo $ru tail', 9)).toEqual(['$ruthless'])
+    expect(suggestAt('/demo $ruthless my idea $rx')).toEqual([])
+    expect(suggest(spec, 'idea $r', 5, 7, '$r')).toEqual([])
   })
 })
 
 describe('typing band', () => {
   test('shows inline skill choices without losing surrounding prose', () => {
-    const text = 'Please /demo the onboarding redesign and focus on !scope'
+    const text = 'Please /demo the onboarding redesign and focus on $scope'
     const choices = typingChoices(spec, text, text.length)!
     expect(choices.options.map(o => o.value)).toEqual(['gentle', 'balanced', 'ruthless'])
-    expect(withChoice(text, text.length, choices.start, 'ruthless')).toBe('Please /demo !ruthless the onboarding redesign and focus on !scope')
+    expect(withChoice(text, text.length, choices.start, 'ruthless')).toBe('Please /demo $ruthless the onboarding redesign and focus on $scope')
   })
 
   test('replaces a partial choice before the skill and keeps the command out of free text', () => {
-    const text = '!r Please /demo the redesign !scope'
+    const text = '$r Please /demo the redesign $scope'
     const choices = typingChoices(spec, text, 2)!
     expect(choices.options.map(o => o.value)).toEqual(['ruthless'])
-    expect(withChoice(text, 2, choices.start, 'ruthless')).toBe('!ruthless Please /demo the redesign !scope')
+    expect(withChoice(text, 2, choices.start, 'ruthless')).toBe('$ruthless Please /demo the redesign $scope')
     const head = commandMentions(text)[0]!
     expect(parse(spec, commandArgs(text, head)).rest).toBe('Please the redesign')
     expect(commandMentions('See /tmp/file or https://example.com/demo')).toEqual([])
@@ -161,17 +169,17 @@ describe('typing band', () => {
   test('shows the next unset argument and inserts after the command', () => {
     const choices = typingChoices(spec, '/demo my idea', 13)!
     expect(choices.options.map(o => o.value)).toEqual(['gentle', 'balanced', 'ruthless'])
-    expect(withChoice('/demo my idea', 13, choices.start, 'balanced')).toBe('/demo !balanced my idea')
+    expect(withChoice('/demo my idea', 13, choices.start, 'balanced')).toBe('/demo $balanced my idea')
   })
 
-  test('narrows on a partial !value and replaces it', () => {
-    const choices = typingChoices(spec, '/demo my idea !r', 16)!
+  test('narrows on a partial $value and replaces it', () => {
+    const choices = typingChoices(spec, '/demo my idea $r', 16)!
     expect(choices.options.map(o => o.value)).toEqual(['ruthless', 'risks'])
-    expect(withChoice('/demo my idea !r', 16, choices.start, 'risks')).toBe('/demo my idea !risks')
+    expect(withChoice('/demo my idea $r', 16, choices.start, 'risks')).toBe('/demo my idea $risks')
   })
 
   test('disappears once every argument is set', () => {
-    expect(typingChoices(spec, '/demo !ruthless !scope my idea', 30)).toBeUndefined()
+    expect(typingChoices(spec, '/demo $ruthless $scope my idea', 30)).toBeUndefined()
     expect(typingChoices(spec, 'hello', 5)).toBeUndefined()
   })
 })

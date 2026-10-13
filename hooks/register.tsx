@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Arg, Draft, Parsed, Pending } from '../types'
-import { banged, canonical, commandArgs, commandMentions, isPermitted, missing, parse, questionFor, specOf, suggest, typingChoices, withChoice } from './args'
+import { choiceText, canonical, commandArgs, commandMentions, isPermitted, missing, parse, questionFor, specOf, suggest, typingChoices, withChoice } from './args'
 
 const pending = atom({ plugin: 'skill-args', key: 'pending' } as const, null as Pending)
 const draft = atom({ plugin: 'skill-args', key: 'draft' } as const, null as Draft)
@@ -76,7 +76,7 @@ const ask = async ($: EngineInterface, arg: Arg, parsed: Parsed) => {
 const settle = async ($: EngineInterface, command: string, spec: Arg[], parsed: Parsed) => {
   const next = missing(spec, parsed)[0]
   if (next && !next.options) {
-    const filled = await $.prompt.fill({ text: `/${command} ${banged(spec, parsed)} ` })
+    const filled = await $.prompt.fill({ text: `/${command} ${choiceText(spec, parsed)} ` })
     if (filled.isFilled) {
       await update($, pending, () => null)
       return `/${command}: ${next.question} Type it after the command and press Enter.`
@@ -104,7 +104,7 @@ const terminalArguments = async ($: EngineInterface, command: string, spec: Arg[
   }
   const next = missing(spec, parsed)[0]
   if (next) {
-    await $.prompt.fill({ text: `/${command} ${banged(spec, parsed)} ` })
+    await $.prompt.fill({ text: `/${command} ${choiceText(spec, parsed)} ` })
     return `/${command}: ${next.question} Type it after the command and press Enter.`
   }
 }
@@ -217,7 +217,7 @@ export const register: Register = on => {
       return (
         <ui.Box flexDirection="column" gap={1}>
           <ui.Text dimColor>
-            {choices.question} Click to add it, or type !{choices.options[0]!.value}.
+            {choices.question} Click to add it, or type ${choices.options[0]!.value}.
           </ui.Text>
           <ui.Client key="typing" module="./cards.tsx" props={{ options: choices.options }} width="100%" />
         </ui.Box>
@@ -225,7 +225,7 @@ export const register: Register = on => {
     }
 
     const { Box, Button, Text } = ui
-    const chosen = banged(current.spec, { ...current.parsed, rest: '' })
+    const chosen = choiceText(current.spec, { ...current.parsed, rest: '' })
 
     return (
       <Box flexDirection="column" gap={1}>

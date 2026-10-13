@@ -73,20 +73,20 @@ export const specOf = (source: string): Arg[] | undefined => {
   return isUsable ? spec : undefined
 }
 
-export const BANG = /(^|\s)!([\w-]+)(?=\s|$)/g
+export const CHOICE_TOKEN = /(^|\s)\$([\w-]+)(?=\s|$)/g
 
 export const isPermitted = (arg: Arg, value: string) => arg.options!.some(o => o.value === value)
 
 export const parse = (spec: Arg[], args: string): Parsed => {
   const values: Record<string, string> = {}
   const invalid: Record<string, string> = {}
-  const bangs = [...args.matchAll(BANG)].map(m => m[2]!)
+  const choices = [...args.matchAll(CHOICE_TOKEN)].map(m => m[2]!)
   const taken = new Set<number>()
-  bangs.forEach((value, i) => {
+  choices.forEach((value, i) => {
     const arg = spec.find(a => a.options && !(a.name in values) && isPermitted(a, value))
     if (arg) (values[arg.name] = value), taken.add(i)
   })
-  bangs.forEach((value, i) => {
+  choices.forEach((value, i) => {
     if (taken.has(i)) return
     const arg =
       spec.find(a => a.options && a.open && !(a.name in values)) ??
@@ -97,7 +97,7 @@ export const parse = (spec: Arg[], args: string): Parsed => {
     taken.add(i)
   })
   let index = -1
-  const rest = args.replace(BANG, (whole: string, lead: string) => (taken.has(++index) ? lead : whole))
+  const rest = args.replace(CHOICE_TOKEN, (whole: string, lead: string) => (taken.has(++index) ? lead : whole))
   return { values, rest: rest.replace(/\s+/g, ' ').trim(), invalid }
 }
 
@@ -115,8 +115,8 @@ const quote = (value: string) => {
 export const canonical = (spec: Arg[], parsed: Parsed) =>
   spec.map(a => quote(a.options ? parsed.values[a.name] ?? '' : parsed.rest)).join(' ')
 
-export const banged = (spec: Arg[], parsed: Parsed) =>
-  [...spec.filter(a => a.options && parsed.values[a.name]).map(a => `!${parsed.values[a.name]}`), parsed.rest].filter(Boolean).join(' ')
+export const choiceText = (spec: Arg[], parsed: Parsed) =>
+  [...spec.filter(a => a.options && parsed.values[a.name]).map(a => `$${parsed.values[a.name]}`), parsed.rest].filter(Boolean).join(' ')
 
 export const questionFor = (arg: Arg, parsed: Parsed) =>
   parsed.invalid[arg.name] ? `"${parsed.invalid[arg.name]}" is not a valid ${arg.name}. ${arg.question}` : arg.question
@@ -134,7 +134,7 @@ export const typedCommand = (text: string) => commandMentions(text)[0]
 export const commandArgs = (text: string, head: CommandMention) => `${text.slice(0, head.start)} ${text.slice(head.end)}`.trim()
 
 const rowsFor = (options: Option[], prefix: string) =>
-  options.map(o => ({ text: `${prefix}!${o.value}`, label: `!${o.value}`, description: o.description }))
+  options.map(o => ({ text: `${prefix}$${o.value}`, label: `$${o.value}`, description: o.description }))
 
 export const suggest = (spec: Arg[], text: string, start: number, cursor: number, token: string, head = typedCommand(text)) => {
   if (!head || /\S/.test(text[cursor] ?? '')) return []
@@ -144,7 +144,7 @@ export const suggest = (spec: Arg[], text: string, start: number, cursor: number
   const filled = parse(spec, elsewhere).values
   const open = spec.filter(a => a.options && !(a.name in filled))
   if (isCommand) return isAtEnd && open[0] ? rowsFor(open[0].options!, `${token} `) : []
-  if (!token.startsWith('!')) return []
+  if (!token.startsWith('$')) return []
   const completed = open.find(a => isPermitted(a, token.slice(1)))
   if (completed) {
     const next = open.find(a => a !== completed)
@@ -152,13 +152,13 @@ export const suggest = (spec: Arg[], text: string, start: number, cursor: number
   }
   const prefix = token.slice(1).toLowerCase()
   return open.flatMap(a =>
-    a.options!.filter(o => o.value.startsWith(prefix)).map(o => ({ text: `!${o.value}`, label: `!${o.value}`, description: o.description })),
+    a.options!.filter(o => o.value.startsWith(prefix)).map(o => ({ text: `$${o.value}`, label: `$${o.value}`, description: o.description })),
   )
 }
 
 export const typingChoices = (spec: Arg[], text: string, cursor: number, head = typedCommand(text)) => {
   if (!head || (cursor >= head.start && cursor < head.end)) return undefined
-  const from = text.slice(0, cursor).search(/!\S*$/)
+  const from = text.slice(0, cursor).search(/\$\S*$/)
   const start = from >= 0 && (from === 0 || /\s/.test(text[from - 1] ?? '')) && !/\S/.test(text[cursor] ?? '') ? from : -1
   const token = start >= 0 ? text.slice(start + 1, cursor).toLowerCase() : ''
   const elsewhere = start >= 0 ? text.slice(0, start) + ' '.repeat(cursor - start) + text.slice(cursor) : text
@@ -175,6 +175,6 @@ export const typingChoices = (spec: Arg[], text: string, cursor: number, head = 
 }
 
 export const withChoice = (text: string, cursor: number, start: number, value: string, head = typedCommand(text)!) => {
-  if (start >= 0) return text.slice(0, start) + `!${value}` + text.slice(cursor)
-  return `${text.slice(0, head.end)} !${value}${text.slice(head.end)}`
+  if (start >= 0) return text.slice(0, start) + `$${value}` + text.slice(cursor)
+  return `${text.slice(0, head.end)} $${value}${text.slice(head.end)}`
 }
