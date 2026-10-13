@@ -2,7 +2,7 @@
 name: demo
 description: Shows what a skill receives from skill-args. Echoes its arguments and does nothing else.
 arguments: [tone, topic]
-argument-hint: "!tone <topic>"
+argument-hint: "$tone <topic>"
 disable-model-invocation: true
 metadata:
   args:

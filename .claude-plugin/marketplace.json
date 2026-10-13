@@ -6,7 +6,7 @@
     {
       "name": "skill-args",
       "source": "./",
-      "description": "Enumerated !value arguments for user-invoked skills, with autocomplete, clickable cards and prompts for missing values"
+      "description": "Enumerated $value arguments for user-invoked skills, with autocomplete, clickable cards and prompts for missing values"
     }
   ]
 }

@@ -1,9 +1,9 @@
 # claude-skill-args
 
-A Claude Code mod that lets any skill you write offer a fixed set of choices as `!value` arguments. Users get autocomplete and clickable cards, and the skill gets clean, predictable arguments.
+A Claude Code mod that lets any skill you write offer a fixed set of choices as `$value` arguments. Users get autocomplete and clickable cards, and the skill gets clean, predictable arguments.
 
 ```
-/demo !friendly the weather
+/demo $friendly the weather
 ```
 
 ## The idea
@@ -14,10 +14,10 @@ A skill normally gets one blob of free text and has to guess what the user meant
 /review take a detailed look at the onboarding redesign
 ```
 
-With skill-args, you declare the choices once in your skill's frontmatter. Users pick them with `!value`, and your skill reads each one as its own argument:
+With skill-args, you declare the choices once in your skill's frontmatter. Users pick them with `$value`, and your skill reads each one as its own argument:
 
 ```
-/review !thorough the onboarding redesign
+/review $thorough the onboarding redesign
 ```
 
 | | Without skill-args | With skill-args |
@@ -49,7 +49,7 @@ Answer `y` to add the marketplace, then choose a scope.
 mkdir -p ~/.claude/skills/demo && cp examples/demo/SKILL.md ~/.claude/skills/demo/
 ```
 
-Then type `/demo !friendly the weather`. Claude replies with:
+Then type `/demo $friendly the weather`. Claude replies with:
 
 ```
 tone=friendly topic=the weather
@@ -90,11 +90,11 @@ metadata:
 Review $target. Depth: $depth.
 ```
 
-Type `/review !thorough the redesign` to pass `thorough` as `$depth` and `the redesign` as `$target`. Both choices are suggested while typing. For example, terminal autocomplete filters by prefix:
+Type `/review $thorough the redesign` to pass `thorough` as `$depth` and `the redesign` as `$target`. Both choices are suggested while typing. For example, terminal autocomplete filters by prefix:
 
 ```
-> /review !t
-  !thorough    Detailed review of each aspect
+> /review $t
+  $thorough    Detailed review of each aspect
 ```
 
 Submit `/review the redesign` without a depth and the skill waits for your choice. The terminal asks through Claude's question dialog:
@@ -149,7 +149,7 @@ Check $document. Focus on $focus if supplied; otherwise check the whole document
 
 | Typed | `$focus` / `$0` | `$document` / `$1` |
 |---|---|---|
-| `/check !scope the proposal` | `scope` | `the proposal` |
+| `/check $scope the proposal` | `scope` | `the proposal` |
 | `/check the proposal` | *(empty)* | `the proposal` |
 
 The declared choices can appear in autocomplete and typing cards. On submit, a missing optional choice never triggers a question or a required-choice banner. `/check the proposal` runs immediately, with an empty string in the first position: `$ARGUMENTS` is `"" "the proposal"`.
@@ -181,10 +181,10 @@ Explain $topic for $audience.
 
 | Typed | `$audience` / `$0` | `$topic` / `$1` |
 |---|---|---|
-| `/explain !beginner caching` | `beginner` | `caching` |
-| `/explain !designer caching` | `designer` | `caching` |
+| `/explain $beginner caching` | `beginner` | `caching` |
+| `/explain $designer caching` | `designer` | `caching` |
 
-`beginner` and `developer` are suggested choices. The custom `!designer` value is accepted directly; it does not need to be declared. Type custom values in the command as `!value`: the question dialog and cards offer the declared choices.
+`beginner` and `developer` are suggested choices. The custom `$designer` value is accepted directly; it does not need to be declared. Type custom values in the command as `$value`: the question dialog and cards offer the declared choices.
 
 `open: true` does not make an argument optional. Submit `/explain caching` and you are still asked for an audience before the skill runs. Combine `open: true` with `optional: true` only when a custom value may also be omitted.
 
@@ -195,20 +195,20 @@ Explain $topic for $audience.
 | `options` | The declared values, each with a description. A leading emoji is shown on desktop cards. |
 | `question` | What to ask when a required value is missing. For choices, defaults to `Which <name>?`. |
 | `optional: true` | Don't ask for it on submit. A missing value reaches the skill as an empty string. Declared choices can still be suggested while typing. |
-| `open: true` | Also accept `!values` that aren't in the declared list. |
+| `open: true` | Also accept `$values` that aren't in the declared list. |
 | *(no `options`)* | The free-text argument: every plain word the user typed. At most one. |
 
 Rules:
 
 - `arguments:` sets the positional order and enables `$name`. Leave it out and the order of `metadata.args` is used; then use `$0`, `$1`, and so on.
 - Every argument is required unless it sets `optional: true`.
-- The skill command and `!values` can be written anywhere in the prompt, in any order. For example, `Please /review the redesign` shows the argument cards and asks for the missing required depth before running. Every plain word, including words before the command, belongs to the free-text argument.
-- An unknown `!value` fills the first empty open argument. If there is none, it counts as an invalid value for the first empty required strict argument, which is then asked again. Otherwise it stays in the free text.
+- The skill command and `$values` can be written anywhere in the prompt, in any order. For example, `Please /review the redesign` shows the argument cards and asks for the missing required depth before running. Every plain word, including words before the command, belongs to the free-text argument.
+- An unknown `$value` fills the first empty open argument. If there is none, it counts as an invalid value for the first empty required strict argument, which is then asked again. Otherwise it stays in the free text.
 - Prefer single-codepoint emoji in descriptions.
 - Skills without `metadata.args` behave exactly as before.
 
 > [!NOTE]
-> `$ARGUMENTS` is the whole rewritten string, not what the user typed. For example, `/review !thorough the redesign` becomes `thorough "the redesign"`. Use `$name` or `$N` for single values. Quoted text in the input is preserved as part of the free-text argument.
+> `$ARGUMENTS` is the whole rewritten string, not what the user typed. For example, `/review $thorough the redesign` becomes `thorough "the redesign"`. Use `$name` or `$N` for single values. Quoted text in the input is preserved as part of the free-text argument.
 
 ## How it works
 
@@ -216,7 +216,7 @@ Rules:
 flowchart TD
     A["You type a slash command"] --> B{"Does the skill declare metadata.args?"}
     B -- no --> Z["Runs untouched"]
-    B -- yes --> C["Match each !value to an argument.<br/>Plain words become the free text."]
+    B -- yes --> C["Match each $value to an argument.<br/>Plain words become the free text."]
     C --> D{"Anything required missing?"}
     D -- "a choice" --> E["Ask for it:<br/>question dialog in the terminal,<br/>cards on the desktop"]
     E --> D
@@ -226,8 +226,8 @@ flowchart TD
     H --> I["The skill reads $name, $N and $ARGUMENTS[N]"]
 ```
 
-1. **While you type**, it reads the skill's `metadata.args` and suggests declared `!values` for arguments that have not been filled.
-2. **When you submit**, it intercepts the command, matches every `!value`, and asks for anything required that's missing.
+1. **While you type**, it reads the skill's `metadata.args` and suggests declared `$values` for arguments that have not been filled.
+2. **When you submit**, it intercepts the command, matches every `$value`, and asks for anything required that's missing.
 3. **Before the skill runs**, it rewrites your input to one quoted value per declared argument, with `""` for an empty optional one, so every position stays in place.
 4. **Claude Code** then fills `$name`, `$N` and `$ARGUMENTS[N]` from that string, as it does for any skill.
 
@@ -235,7 +235,7 @@ Commands at the beginning use Claude Code's normal command hook. A skill mention
 
 | | Terminal | Desktop app (Code tab) |
 |---|---|---|
-| Suggestions while typing | Native autocomplete rows for `!values`, after the command and after each completed value. A compact clickable list appears above the prompt when the native menu has nothing to show. | No native autocomplete exists there. A band of clickable cards follows what you type, including Tab completion. |
+| Suggestions while typing | Native autocomplete rows for `$values`, after the command and after each completed value. A compact clickable list appears above the prompt when the native menu has nothing to show. | No native autocomplete exists there. A band of clickable cards follows what you type, including Tab completion. |
 | Missing required choice on submit | Asked through Claude's own question dialog. | Picked from cards in the banner above the prompt. |
 | Missing optional choice on submit | Runs without asking for it. | Runs without asking for it. |
 | Missing required free text on submit | Your text is put back in the prompt box. | Your text is put back in the prompt box. |
