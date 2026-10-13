@@ -11,13 +11,13 @@ A Claude Code mod that lets any skill you write offer a fixed set of choices as 
 A skill normally gets one blob of free text and has to guess what the user meant:
 
 ```
-/review be really harsh, mostly about scope, the onboarding redesign
+/review take a detailed look at the onboarding redesign
 ```
 
 With skill-args, you declare the choices once in your skill's frontmatter. Users pick them with `!value`, and your skill reads each one as its own argument:
 
 ```
-/review !ruthless !scope the onboarding redesign
+/review !thorough the onboarding redesign
 ```
 
 | | Without skill-args | With skill-args |
@@ -25,7 +25,7 @@ With skill-args, you declare the choices once in your skill's frontmatter. Users
 | User | Has to remember what the skill understands | Picks from autocomplete or cards |
 | Missing input | The skill guesses or asks halfway through | Asked before the skill starts |
 | Choices | Free-form and easy to misspell | Picked from a declared list |
-| Skill body | Parses `$ARGUMENTS` itself | Reads `$intensity`, `$focus`, `$target` |
+| Skill body | Parses `$ARGUMENTS` itself | Reads `$depth` and `$target` |
 
 > [!TIP]
 > Your skill body doesn't change. skill-args only rewrites what the user typed into the standard positional arguments that Claude Code already supports, so `$name`, `$0` and `$ARGUMENTS[0]` work as usual.
@@ -61,43 +61,141 @@ Type `/demo the weather` without a tone and you are asked which tone you want be
 
 ## Use it in your own skill
 
-Three things in the frontmatter turn it on:
+Set `disable-model-invocation: true`, declare choices under `metadata.args`, and use `arguments` to set their positional order. Each example below is a separate skill.
+
+> [!IMPORTANT]
+> skill-args runs when *you* type a slash command. It never sees a skill that Claude invokes on its own, so the skill must set `disable-model-invocation: true`.
+
+### 1. Required choices: choose the review depth
+
+Use a required choice when the skill needs a decision before it can start.
 
 ```yaml
 ---
 name: review
 description: Review a piece of work
-disable-model-invocation: true        # 1. only you can invoke it
-arguments: [intensity, focus, target] # 2. the positional order
+disable-model-invocation: true
+arguments: [depth, target]
 metadata:
-  args:                               # 3. the choices
-    intensity:
-      question: How hard should it push?
+  args:
+    depth:
+      question: How detailed should the review be?
       options:
-        gentle: 🌱 Explore without much pressure
-        ruthless: 🔥 Aggressively challenge every weakness
-    focus:
-      optional: true
-      open: true
-      options:
-        scope: 🎯 Question what is in and what is out
-        risks: 🚨 Hunt for what could go wrong
+        brief: 🌱 Quick overview of key points
+        thorough: 🔎 Detailed review of each aspect
     target:
       question: What should be reviewed?
 ---
 
-Review $target. Intensity: $intensity. Focus: $focus.
+Review $target. Depth: $depth.
 ```
 
-> [!IMPORTANT]
-> The skill must set `disable-model-invocation: true`. skill-args runs when *you* type a slash command. It never sees a skill that Claude invokes on its own, so it only takes over skills that Claude can't invoke.
+Type `/review !thorough the redesign` to pass `thorough` as `$depth` and `the redesign` as `$target`. Both choices are suggested while typing. For example, terminal autocomplete filters by prefix:
+
+```
+> /review !t
+  !thorough    Detailed review of each aspect
+```
+
+Submit `/review the redesign` without a depth and the skill waits for your choice. The terminal asks through Claude's question dialog:
+
+```
+ ☐ depth
+
+ How detailed should the review be?
+
+ ❯ 1. brief — Quick overview of key points
+   2. thorough — Detailed review of each aspect
+   3. Type something.
+
+ Enter to select · Esc to cancel
+```
+
+The desktop shows cards in the banner above the prompt:
+
+```
+ /review · How detailed should the review be?                    Cancel
+ ╭────────────────────────────────╮  ╭────────────────────────────────╮
+ │ 🌱 brief                       │  │ 🔎 thorough                    │
+ │ Quick overview of key points   │  │ Detailed review of each aspect │
+ ╰────────────────────────────────╯  ╰────────────────────────────────╯
+```
+
+An invalid answer is asked again. In the terminal, Esc cancels and puts your text back in the prompt.
+
+### 2. Optional choices: add a focus when useful
+
+Use `optional: true` for a choice the skill can work without. Here, a document check can cover the whole document or focus on one area.
+
+```yaml
+---
+name: check
+description: Check a document
+disable-model-invocation: true
+arguments: [focus, document]
+metadata:
+  args:
+    focus:
+      optional: true
+      options:
+        scope: 🎯 Review what is in and what is out
+        risks: 🚨 Identify potential issues
+    document:
+      question: Which document should be checked?
+---
+
+Check $document. Focus on $focus if supplied; otherwise check the whole document.
+```
+
+| Typed | `$focus` / `$0` | `$document` / `$1` |
+|---|---|---|
+| `/check !scope the proposal` | `scope` | `the proposal` |
+| `/check the proposal` | *(empty)* | `the proposal` |
+
+The declared choices can appear in autocomplete and typing cards. On submit, a missing optional choice never triggers a question or a required-choice banner. `/check the proposal` runs immediately, with an empty string in the first position: `$ARGUMENTS` is `"" "the proposal"`.
+
+### 3. Open choices: accept a custom audience
+
+Use `open: true` when common choices help, but users should also be able to name their own value.
+
+```yaml
+---
+name: explain
+description: Explain a topic for an audience
+disable-model-invocation: true
+arguments: [audience, topic]
+metadata:
+  args:
+    audience:
+      open: true
+      question: Who is the explanation for?
+      options:
+        beginner: 🌱 Start with the basics
+        developer: 💻 Include technical details
+    topic:
+      question: What should be explained?
+---
+
+Explain $topic for $audience.
+```
+
+| Typed | `$audience` / `$0` | `$topic` / `$1` |
+|---|---|---|
+| `/explain !beginner caching` | `beginner` | `caching` |
+| `/explain !designer caching` | `designer` | `caching` |
+
+`beginner` and `developer` are suggested choices. The custom `!designer` value is accepted directly; it does not need to be declared. Type custom values in the command as `!value`: the question dialog and cards offer the declared choices.
+
+`open: true` does not make an argument optional. Submit `/explain caching` and you are still asked for an audience before the skill runs. Combine `open: true` with `optional: true` only when a custom value may also be omitted.
+
+### Argument reference
 
 | Key under `metadata.args.<name>` | Meaning |
 |---|---|
-| `options` | The allowed values, each with a description. A leading emoji is shown on desktop cards. |
-| `question` | What to ask when the value is missing. Defaults to `Which <name>?` |
-| `optional: true` | Don't ask for it. A missing value reaches the skill as an empty string. |
-| `open: true` | Also accept values that aren't in the list. |
+| `options` | The declared values, each with a description. A leading emoji is shown on desktop cards. |
+| `question` | What to ask when a required value is missing. For choices, defaults to `Which <name>?`. |
+| `optional: true` | Don't ask for it on submit. A missing value reaches the skill as an empty string. Declared choices can still be suggested while typing. |
+| `open: true` | Also accept `!values` that aren't in the declared list. |
 | *(no `options`)* | The free-text argument: every plain word the user typed. At most one. |
 
 Rules:
@@ -109,95 +207,36 @@ Rules:
 - Prefer single-codepoint emoji in descriptions.
 - Skills without `metadata.args` behave exactly as before.
 
-### What the skill receives
-
-| Typed | `$intensity` / `$0` | `$focus` / `$1` | `$target` / `$2` |
-|---|---|---|---|
-| `/review !ruthless !scope the redesign` | `ruthless` | `scope` | `the redesign` |
-| `/review the redesign !gentle` | `gentle` | *(empty)* | `the redesign` |
-| `/review !gentle !tone my notes` | `gentle` | `tone` *(open)* | `my notes` |
-| `/review !gentle she said "it's done"` | `gentle` | *(empty)* | `she said "it's done"` |
-
 > [!NOTE]
-> `$ARGUMENTS` is the whole rewritten string, such as `ruthless scope "the redesign"`, not what the user typed. Use `$name` or `$N` for single values.
+> `$ARGUMENTS` is the whole rewritten string, not what the user typed. For example, `/review !thorough the redesign` becomes `thorough "the redesign"`. Use `$name` or `$N` for single values. Quoted text in the input is preserved as part of the free-text argument.
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    A["You type /review the redesign !ruthless"] --> B{"Does the skill declare metadata.args?"}
+    A["You type a slash command"] --> B{"Does the skill declare metadata.args?"}
     B -- no --> Z["Runs untouched"]
     B -- yes --> C["Match each !value to an argument.<br/>Plain words become the free text."]
     C --> D{"Anything required missing?"}
     D -- "a choice" --> E["Ask for it:<br/>question dialog in the terminal,<br/>cards on the desktop"]
     E --> D
     D -- "the free text" --> F["Put your text back in the prompt box"]
-    D -- "nothing" --> G["Rewrite to positional arguments:<br/>ruthless #quot;#quot; #quot;the redesign#quot;"]
+    D -- "nothing" --> G["Rewrite to positional arguments.<br/>Use an empty string for omitted optional values."]
     G --> H["Claude Code splits them shell-style"]
-    H --> I["$intensity = ruthless<br/>$focus = (empty)<br/>$target = the redesign"]
+    H --> I["The skill reads $name, $N and $ARGUMENTS[N]"]
 ```
 
-Step by step:
-
-1. **While you type**, it reads the skill's `metadata.args` and suggests the `!values` that are still open.
+1. **While you type**, it reads the skill's `metadata.args` and suggests declared `!values` for arguments that have not been filled.
 2. **When you submit**, it intercepts the command, matches every `!value`, and asks for anything required that's missing.
 3. **Before the skill runs**, it rewrites your input to one quoted value per declared argument, with `""` for an empty optional one, so every position stays in place.
 4. **Claude Code** then fills `$name`, `$N` and `$ARGUMENTS[N]` from that string, as it does for any skill.
 
-## What it looks like
-
-These wireframes use the review skill above.
-
-**Terminal: autocomplete while typing**
-
-```
-> /review !r
-  !ruthless    Aggressively challenge every weakness
-  !risks       Hunt for what could go wrong
-```
-
-**Terminal: a required choice is missing on submit**
-
-```
- ☐ intensity
-
- How hard should it push?
-
- ❯ 1. gentle — Explore without much pressure
-   2. ruthless — Aggressively challenge every weakness
-   3. Type something.
-
- Enter to select · Esc to cancel
-```
-
-An invalid answer is asked again. Esc cancels and puts your text back in the prompt.
-
-**Desktop app: cards above the prompt while typing**
-
-```
- How hard should it push? Click to add it, or type !gentle.
- ╭────────────────────────────────╮  ╭────────────────────────────────╮
- │ 🌱 gentle                      │  │ 🔥 ruthless                    │
- │ Explore without much pressure  │  │ Aggressively challenge every   │
- │                                │  │ weakness                       │
- ╰────────────────────────────────╯  ╰────────────────────────────────╯
- > /review the redesign
-```
-
-**Desktop app: a required choice is missing on submit**
-
-```
- /review · How hard should it push?                              Cancel
- ╭────────────────────────────────╮  ╭────────────────────────────────╮
- │ 🌱 gentle                      │  │ 🔥 ruthless                    │
- ...
-```
-
 | | Terminal | Desktop app (Code tab) |
 |---|---|---|
 | Suggestions while typing | Native autocomplete rows for `!values`, after the command and after each completed value. A compact clickable list appears above the prompt when the native menu has nothing to show. | No native autocomplete exists there. A band of clickable cards follows what you type, including Tab completion. |
-| Missing required value on submit | Asked through Claude's own question dialog. | Picked from cards. |
-| Missing free text on submit | Your text is put back in the prompt box. | Your text is put back in the prompt box. |
+| Missing required choice on submit | Asked through Claude's own question dialog. | Picked from cards in the banner above the prompt. |
+| Missing optional choice on submit | Runs without asking for it. | Runs without asking for it. |
+| Missing required free text on submit | Your text is put back in the prompt box. | Your text is put back in the prompt box. |
 
 ## Where skill files are found
 
