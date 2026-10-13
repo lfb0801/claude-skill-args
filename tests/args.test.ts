@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { canonical, frontmatter, missing, parse, specOf, suggest, typingChoices, withChoice } from '../hooks/args'
+import { canonical, commandArgs, commandMentions, frontmatter, missing, parse, specOf, suggest, typingChoices, withChoice } from '../hooks/args'
 
 const DEMO = `---
 name: demo
@@ -52,7 +52,7 @@ describe('frontmatter', () => {
   test('declares arguments in order with options, emoji and flags', () => {
     expect(spec.map(a => a.name)).toEqual(['intensity', 'focus', 'target'])
     expect(spec[0]!.options![0]).toEqual({ value: 'gentle', emoji: '🌱', description: 'Explore without much pressure' })
-    expect(spec[1]!.options![1]).toEqual({ value: 'risks', emoji: undefined, description: 'Hunt for what could go wrong' })
+    expect(spec[1]!.options![1]).toEqual({ value: 'risks', description: 'Hunt for what could go wrong' })
     expect(spec[1]!.options![2]!.description).toBe('Look for simpler ways: fewer parts')
     expect(spec[1]).toEqual(expect.objectContaining({ optional: true, open: true, question: 'Which focus?' }))
     expect(spec[2]).toEqual({ name: 'target', question: 'What should be grilled?' })
@@ -109,6 +109,13 @@ describe('parse', () => {
 })
 
 describe('autocomplete', () => {
+  test('finds a skill after prose and matches choices before or after it', () => {
+    const text = '!scope Please /demo the onboarding redesign !r'
+    expect(suggestAt(text)).toEqual(['!ruthless'])
+    expect(suggestAt('Please /demo')).toEqual(['/demo !gentle', '/demo !balanced', '/demo !ruthless'])
+    expect(suggestAt('!r Please /demo the redesign', 2)).toEqual(['!ruthless', '!risks'])
+  })
+
   test('offers the first argument right after the command', () => {
     expect(suggestAt('/demo')).toEqual(['/demo !gentle', '/demo !balanced', '/demo !ruthless'])
   })
@@ -134,6 +141,23 @@ describe('autocomplete', () => {
 })
 
 describe('typing band', () => {
+  test('shows inline skill choices without losing surrounding prose', () => {
+    const text = 'Please /demo the onboarding redesign and focus on !scope'
+    const choices = typingChoices(spec, text, text.length)!
+    expect(choices.options.map(o => o.value)).toEqual(['gentle', 'balanced', 'ruthless'])
+    expect(withChoice(text, text.length, choices.start, 'ruthless')).toBe('Please /demo !ruthless the onboarding redesign and focus on !scope')
+  })
+
+  test('replaces a partial choice before the skill and keeps the command out of free text', () => {
+    const text = '!r Please /demo the redesign !scope'
+    const choices = typingChoices(spec, text, 2)!
+    expect(choices.options.map(o => o.value)).toEqual(['ruthless'])
+    expect(withChoice(text, 2, choices.start, 'ruthless')).toBe('!ruthless Please /demo the redesign !scope')
+    const head = commandMentions(text)[0]!
+    expect(parse(spec, commandArgs(text, head)).rest).toBe('Please the redesign')
+    expect(commandMentions('See /tmp/file or https://example.com/demo')).toEqual([])
+  })
+
   test('shows the next unset argument and inserts after the command', () => {
     const choices = typingChoices(spec, '/demo my idea', 13)!
     expect(choices.options.map(o => o.value)).toEqual(['gentle', 'balanced', 'ruthless'])

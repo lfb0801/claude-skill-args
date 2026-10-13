@@ -44,7 +44,7 @@ const EMOJI = /^(\p{Extended_Pictographic}\uFE0F?)\s*/u
 const optionOf = (value: string, text: unknown): Option => {
   const description = typeof text === 'string' ? text : ''
   const emoji = EMOJI.exec(description)?.[1]
-  return { value, emoji, description: emoji ? description.replace(EMOJI, '') : description }
+  return { value, ...(emoji ? { emoji } : {}), description: emoji ? description.replace(EMOJI, '') : description }
 }
 
 const asMap = (value: unknown) => (value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined)
@@ -121,19 +121,29 @@ export const banged = (spec: Arg[], parsed: Parsed) =>
 export const questionFor = (arg: Arg, parsed: Parsed) =>
   parsed.invalid[arg.name] ? `"${parsed.invalid[arg.name]}" is not a valid ${arg.name}. ${arg.question}` : arg.question
 
-export const typedCommand = (text: string) => /^\/(\S+)(\s+|$)/.exec(text)
+export type CommandMention = { name: string; start: number; end: number }
+
+export const commandMentions = (text: string): CommandMention[] =>
+  [...text.matchAll(/(^|\s)\/([\w:-]+)(?=\s|$)/g)].map(m => {
+    const start = m.index + m[1]!.length
+    return { name: m[2]!, start, end: start + m[2]!.length + 1 }
+  })
+
+export const typedCommand = (text: string) => commandMentions(text)[0]
+
+export const commandArgs = (text: string, head: CommandMention) => `${text.slice(0, head.start)} ${text.slice(head.end)}`.trim()
 
 const rowsFor = (options: Option[], prefix: string) =>
   options.map(o => ({ text: `${prefix}!${o.value}`, label: `!${o.value}`, description: o.description }))
 
-export const suggest = (spec: Arg[], text: string, start: number, cursor: number, token: string) => {
-  const head = typedCommand(text)
+export const suggest = (spec: Arg[], text: string, start: number, cursor: number, token: string, head = typedCommand(text)) => {
   if (!head || /\S/.test(text[cursor] ?? '')) return []
   const isAtEnd = !text.slice(cursor).trim()
-  const elsewhere = start === 0 ? '' : text.slice(head[0].length, start) + ' ' + text.slice(cursor)
+  const isCommand = start === head.start
+  const elsewhere = isCommand ? commandArgs(text, head) : commandArgs(text.slice(0, start) + ' '.repeat(cursor - start) + text.slice(cursor), head)
   const filled = parse(spec, elsewhere).values
   const open = spec.filter(a => a.options && !(a.name in filled))
-  if (start === 0) return isAtEnd && open[0] ? rowsFor(open[0].options!, `${token} `) : []
+  if (isCommand) return isAtEnd && open[0] ? rowsFor(open[0].options!, `${token} `) : []
   if (!token.startsWith('!')) return []
   const completed = open.find(a => isPermitted(a, token.slice(1)))
   if (completed) {
@@ -146,13 +156,13 @@ export const suggest = (spec: Arg[], text: string, start: number, cursor: number
   )
 }
 
-export const typingChoices = (spec: Arg[], text: string, cursor: number) => {
-  const head = typedCommand(text)
-  if (!head || cursor < head[1]!.length + 1) return undefined
+export const typingChoices = (spec: Arg[], text: string, cursor: number, head = typedCommand(text)) => {
+  if (!head || (cursor >= head.start && cursor < head.end)) return undefined
   const from = text.slice(0, cursor).search(/!\S*$/)
-  const start = from >= head[0].length && /^\s/.test(text[from - 1] ?? '') ? from : -1
+  const start = from >= 0 && (from === 0 || /\s/.test(text[from - 1] ?? '')) && !/\S/.test(text[cursor] ?? '') ? from : -1
   const token = start >= 0 ? text.slice(start + 1, cursor).toLowerCase() : ''
-  const others = parse(spec, text.slice(head[0].length, start >= 0 ? start : cursor) + ' ' + text.slice(cursor)).values
+  const elsewhere = start >= 0 ? text.slice(0, start) + ' '.repeat(cursor - start) + text.slice(cursor) : text
+  const others = parse(spec, commandArgs(elsewhere, head)).values
   const open = spec.filter(a => a.options && !(a.name in others))
   const exact = open.find(a => isPermitted(a, token))
   if (start >= 0 && !exact) {
@@ -164,9 +174,7 @@ export const typingChoices = (spec: Arg[], text: string, cursor: number) => {
   return arg && { question: arg.question, options: arg.options!, start: -1 }
 }
 
-export const withChoice = (text: string, cursor: number, start: number, value: string) => {
+export const withChoice = (text: string, cursor: number, start: number, value: string, head = typedCommand(text)!) => {
   if (start >= 0) return text.slice(0, start) + `!${value}` + text.slice(cursor)
-  const head = typedCommand(text)!
-  const rest = text.slice(head[0].length)
-  return `/${head[1]} !${value} ${rest}`
+  return `${text.slice(0, head.end)} !${value}${text.slice(head.end)}`
 }

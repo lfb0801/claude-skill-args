@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Arg, Draft, Parsed, Pending } from '../types'
-import { banged, canonical, isPermitted, missing, parse, questionFor, specOf, suggest, typedCommand, typingChoices, withChoice } from './args'
+import { banged, canonical, commandArgs, commandMentions, isPermitted, missing, parse, questionFor, specOf, suggest, typingChoices, withChoice } from './args'
 
 const pending = atom({ plugin: 'skill-args', key: 'pending' } as const, null as Pending)
 const draft = atom({ plugin: 'skill-args', key: 'draft' } as const, null as Draft)
@@ -42,15 +42,24 @@ const resolve = async ($: EngineInterface, typed: string) => {
   return commands.find(name => name === typed) ?? commands.find(name => name.endsWith(`:${typed}`))
 }
 
+const invocationFor = async ($: EngineInterface, text: string, isFresh = false) => {
+  for (const head of commandMentions(text)) {
+    const command = await resolve($, head.name)
+    const spec = command ? await specFor($, command, isFresh) : undefined
+    if (command && spec) return { head, command, spec }
+  }
+}
+
 const choicesFor = async ($: EngineInterface, box: Draft, isMenuShown = false) => {
-  const command = box ? await resolve($, typedCommand(box.text)?.[1] ?? '') : undefined
-  const spec = command ? await specFor($, command) : undefined
-  if (!box || !spec) return undefined
+  const invocation = box ? await invocationFor($, box.text) : undefined
+  if (!box || !invocation) return undefined
+  const { head, spec } = invocation
   if (isMenuShown) {
     const start = box.text.slice(0, box.cursor).search(/\S+$/)
-    if (start >= 0 && suggest(spec, box.text, start, box.cursor, box.text.slice(start, box.cursor)).length) return undefined
+    if (start >= 0 && suggest(spec, box.text, start, box.cursor, box.text.slice(start, box.cursor), head).length) return undefined
   }
-  return typingChoices(spec, box.text, box.cursor)
+  const choices = typingChoices(spec, box.text, box.cursor, head)
+  return choices && { ...choices, head }
 }
 
 const ask = async ($: EngineInterface, arg: Arg, parsed: Parsed) => {
@@ -84,12 +93,28 @@ const settle = async ($: EngineInterface, command: string, spec: Arg[], parsed: 
 
 const isTerminal = async ($: EngineInterface) => (await $.session.surfaces()).every(s => s === 'terminal')
 
+const terminalArguments = async ($: EngineInterface, command: string, spec: Arg[], parsed: Parsed, original: string) => {
+  for (const arg of missing(spec, parsed).filter(a => a.options)) {
+    try {
+      parsed.values[arg.name] = await ask($, arg, parsed)
+    } catch {
+      await $.prompt.fill({ text: original })
+      return `/${command}: cancelled; your prompt is back in the box.`
+    }
+  }
+  const next = missing(spec, parsed)[0]
+  if (next) {
+    await $.prompt.fill({ text: `/${command} ${banged(spec, parsed)} ` })
+    return `/${command}: ${next.question} Type it after the command and press Enter.`
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     $.clock.every(500, async () => {
       const box = await $.prompt.read()
       const known = await read($, draft)
-      if (box.text !== (known?.text ?? '')) await update($, draft, () => box)
+      if (box.text !== (known?.text ?? '') || box.cursor !== known?.cursor) await update($, draft, () => box)
     })
     return next(e)
   })
@@ -108,18 +133,8 @@ export const register: Register = on => {
     const parsed = parse(spec, e.args)
 
     if (await isTerminal($)) {
-      for (const arg of missing(spec, parsed).filter(a => a.options)) {
-        try {
-          parsed.values[arg.name] = await ask($, arg, parsed)
-        } catch {
-          await $.prompt.fill({ text: `/${e.command} ${e.args}` })
-          return { text: `/${e.command}: cancelled; your prompt is back in the box.` }
-        }
-      }
-      if (missing(spec, parsed).length) {
-        await $.prompt.fill({ text: `/${e.command} ${banged(spec, parsed)} ` })
-        return { text: `/${e.command}: ${missing(spec, parsed)[0]!.question} Type it after the command and press Enter.` }
-      }
+      const text = await terminalArguments($, e.command, spec, parsed, `/${e.command} ${e.args}`)
+      if (text) return { text }
       return next({ ...e, args: canonical(spec, parsed) })
     }
 
@@ -133,7 +148,38 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     await update($, pending, () => null)
     await update($, draft, () => null)
-    return next(e)
+    // Leading commands already pass through command.run. Only intercept the
+    // person's inline mentions, never a notification or another plugin's text.
+    if (!['composer', 'bridge', 'sdk'].includes(e.origin.kind) || /^\//.test(e.text)) return next(e)
+    commands = undefined
+    const invocation = await invocationFor($, e.text, true)
+    if (!invocation) return next(e)
+    const { command, spec, head } = invocation
+    const parsed = parse(spec, commandArgs(e.text, head))
+    if (await isTerminal($)) {
+      const drop = await terminalArguments($, command, spec, parsed, e.text)
+      if (drop) return { drop }
+    } else if (missing(spec, parsed).length) {
+      return { drop: await settle($, command, spec, parsed) }
+    }
+    // command.run cannot be called while prompt.submit is holding the turn.
+    // Dispatch it after this submission is dropped, so the original text never
+    // reaches Claude with unchecked arguments or invokes the skill twice.
+    $.clock.after(0, async () => {
+      try {
+        await $.command.run({ command, args: canonical(spec, parsed) })
+      } catch {
+        await $.prompt.fill({ text: e.text })
+        await $.ui.toast(`/${command}: could not run; your prompt is back in the box.`)
+      }
+    })
+    return { drop: `/${command}: running with the selected arguments.` }
+  }).catch(($, e, next) => {
+    const declared = commandMentions(e.text).some(head =>
+      [...specs].some(([name, spec]) => spec && (name === head.name || name.endsWith(`:${head.name}`))),
+    )
+    if (next.called || !declared) return next(e)
+    return { drop: 'The argument check failed; nothing ran.' }
   })
 
   on('ui.message', { element: 'typing' }, async ($, e, next) => {
@@ -141,7 +187,7 @@ export const register: Register = on => {
     const value = (e.data as { pick?: string } | null)?.pick
     const choices = await choicesFor($, box)
     if (!box || !value || !choices?.options.some(o => o.value === value)) return next(e)
-    const text = withChoice(box.text, box.cursor, choices.start, value)
+    const text = withChoice(box.text, box.cursor, choices.start, value, choices.head)
     await $.prompt.fill({ text })
     await update($, draft, () => ({ text, cursor: text.length }))
     return {}
@@ -213,10 +259,8 @@ export const register: Register = on => {
 
   on('prompt.autocomplete', async ($, e, next) => {
     const rest = (await next(e)).suggestions
-    const typed = typedCommand(e.text)?.[1]
-    const command = typed && (await resolve($, typed))
-    const spec = command && (await specFor($, command))
-    const rows = spec ? suggest(spec, e.text, e.start, e.cursor, e.token) : []
+    const invocation = await invocationFor($, e.text)
+    const rows = invocation ? suggest(invocation.spec, e.text, e.start, e.cursor, e.token, invocation.head) : []
     return { suggestions: rows.length ? [...rest, ...rows] : rest }
   })
 }

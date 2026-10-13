@@ -1,5 +1,6 @@
 import type { On, RenderSurface } from 'claude-code'
-import { describe, expect, test } from 'claude-code/testing'
+import type { EngineCall } from 'claude-code/testing'
+import { describe, expect, mock, test } from 'claude-code/testing'
 
 const DEMO = `---
 name: demo
@@ -49,6 +50,7 @@ const engine = (on: On, world: World) => {
   const ran: string[] = []
   const filled: string[] = []
   const asked: string[] = []
+  const submitted: string[] = []
   const answers = [...(world.answers ?? [])]
   const read = (path: string) => (path.endsWith('/skills/demo/SKILL.md') ? DEMO : FILES[path])
   on('fs.exists', ($, e) => ({ value: read(e.path) !== undefined }))
@@ -69,6 +71,12 @@ const engine = (on: On, world: World) => {
     filled.push(e.text)
     return { isFilled: true }
   })
+  on('prompt.submit', ($, e) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
+  on('prompt.edit', ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+  on('prompt.autocomplete', () => ({ suggestions: [] }))
   on('tool.call', { tool: 'AskUserQuestion' }, ($, e) => {
     const question = e.questions[0]!
     asked.push(question.question)
@@ -79,7 +87,7 @@ const engine = (on: On, world: World) => {
     ran.push(`${e.command} ${e.args}`)
     return { text: 'ran' }
   })
-  return { ran, filled, asked }
+  return { ran, filled, asked, submitted }
 }
 
 describe('terminal', () => {
@@ -124,6 +132,64 @@ describe('terminal', () => {
 })
 
 describe('desktop', () => {
+  test('shows the typing banner for an inline skill and inserts a choice in place', async ($, on) => {
+    const world = engine(on, { surface: 'desktop' })
+    const text = 'Please /demo the onboarding redesign'
+    // These engine events exist in 2.1.293's test runner but are absent from
+    // its generated Engine.prompt type.
+    await ($.prompt as typeof $.prompt & { edit: EngineCall<'prompt.edit'> }).edit({ text: '', cursor: 0, start: 0, end: 0, inputText: text, origin: { kind: 'composer' } })
+    const band = await $.ui.mount({
+      plugin: 'skill-args', surface: 'desktop', component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never,
+    })
+    expect(await band.find({ text: /How hard should it push\?/ })).toBeDefined()
+    await band.post({ pick: 'ruthless' }, { in: 'typing' })
+    expect(world.filled).toEqual(['Please /demo !ruthless the onboarding redesign'])
+    expect(world.ran).toEqual([])
+  })
+
+  test('blocks inline submission until required arguments are picked', async ($, on) => {
+    const world = engine(on, { surface: 'desktop' })
+    const result = await $.prompt.submit({ text: 'Please /demo the onboarding redesign', origin: { kind: 'composer' }, wait: false })
+    expect(result.drop).toContain('above the prompt')
+    expect(world.submitted).toEqual([])
+    expect(world.ran).toEqual([])
+    const band = await $.ui.mount({
+      plugin: 'skill-args', surface: 'desktop', component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never,
+    })
+    await band.post({ pick: 'ruthless' }, { in: 'cards' })
+    expect(world.ran).toEqual(['skill-args:demo ruthless "" "Please the onboarding redesign"'])
+  })
+
+  test('parses choices anywhere and schedules a complete inline skill exactly once', async ($, on) => {
+    const clock = mock.clock(on)
+    const world = engine(on, { surface: 'desktop' })
+    const result = await $.prompt.submit({
+      text: '!ruthless Please /demo the onboarding redesign and focus on !scope', origin: { kind: 'composer' }, wait: false,
+    })
+    expect(result.drop).toContain('running')
+    expect(world.submitted).toEqual([])
+    await clock.settle()
+    expect(world.ran).toEqual(['skill-args:demo ruthless scope "Please the onboarding redesign and focus on"'])
+  })
+
+  test('an explicit focus still blocks on the missing intensity, rather than taking it from prose', async ($, on) => {
+    const world = engine(on, { surface: 'desktop' })
+    const result = await $.prompt.submit({
+      text: 'Please be ruthless /demo the onboarding redesign and focus on !scope', origin: { kind: 'composer' }, wait: false,
+    })
+    expect(result.drop).toContain('above the prompt')
+    expect(world.ran).toEqual([])
+    const band = await $.ui.mount({
+      plugin: 'skill-args', surface: 'desktop', component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100 } as never,
+    })
+    expect(await band.find({ text: /How hard should it push\?/ })).toBeDefined()
+    await band.post({ pick: 'gentle' }, { in: 'cards' })
+    expect(world.ran).toEqual(['skill-args:demo gentle scope "Please be ruthless the onboarding redesign and focus on"'])
+  })
+
   test('a missing value opens the cards band and a pick runs the skill', async ($, on) => {
     const world = engine(on, { surface: 'desktop' })
     const result = await $.command.run(typed('skill-args:demo', 'my idea !scope'))
@@ -141,7 +207,55 @@ describe('desktop', () => {
   })
 })
 
+describe('inline terminal skills', () => {
+  test('asks for a required choice before running an inline skill', async ($, on) => {
+    const clock = mock.clock(on)
+    const world = engine(on, { surface: 'terminal', answers: ['gentle'] })
+    await $.prompt.submit({ text: 'Please /demo the redesign !scope', origin: { kind: 'composer' }, wait: false })
+    expect(world.asked).toEqual(['How hard should it push?'])
+    expect(world.submitted).toEqual([])
+    await clock.settle()
+    expect(world.ran).toEqual(['skill-args:demo gentle scope "Please the redesign"'])
+  })
+
+  test('cancelling restores the original inline prompt and runs nothing', async ($, on) => {
+    const world = engine(on, { surface: 'terminal', isDismissed: true })
+    const text = 'Please /demo the redesign'
+    const result = await $.prompt.submit({ text, origin: { kind: 'composer' }, wait: false })
+    expect(result.drop).toContain('cancelled')
+    expect(world.filled).toEqual([text])
+    expect(world.ran).toEqual([])
+    expect(world.submitted).toEqual([])
+  })
+
+  test('a missing free-text target is refilled rather than submitted', async ($, on) => {
+    const world = engine(on, { surface: 'terminal' })
+    const result = await $.prompt.submit({ text: '!ruthless /demo', origin: { kind: 'composer' }, wait: false })
+    expect(result.drop).toContain('What should be grilled?')
+    expect(world.filled).toEqual(['/skill-args:demo !ruthless '])
+    expect(world.submitted).toEqual([])
+    expect(world.ran).toEqual([])
+  })
+})
+
 describe('other skills', () => {
+  test('leaves unrelated prompts, leading commands and plugin messages untouched', async ($, on) => {
+    const world = engine(on, { surface: 'desktop' })
+    for (const text of ['Please /nothing-here review this', 'Please /grilling review this', '/demo !ruthless my idea', 'See /tmp/file']) {
+      await $.prompt.submit({ text, origin: { kind: 'composer' }, wait: false })
+    }
+    await $.prompt.submit({ text: 'Please /demo my idea', origin: { kind: 'plugin', name: 'another-plugin' }, wait: false })
+    expect(world.submitted).toEqual(['Please /nothing-here review this', 'Please /grilling review this', '/demo !ruthless my idea', 'See /tmp/file', 'Please /demo my idea'])
+    expect(world.ran).toEqual([])
+  })
+
+  test('resolves a configured skill after an unknown slash token for autocomplete', async ($, on) => {
+    engine(on, { surface: 'terminal' })
+    const text = 'See /unknown then /demo the redesign !r'
+    const result = await ($.prompt as typeof $.prompt & { autocomplete: EngineCall<'prompt.autocomplete'> }).autocomplete({ text, cursor: text.length, start: text.length - 2, token: '!r' })
+    expect(result.suggestions.map(row => row.text)).toEqual(['!ruthless', '!risks'])
+  })
+
   test('a skill without declared options runs untouched', async ($, on) => {
     const world = engine(on, { surface: 'terminal' })
     await $.command.run(typed('fantamentos:grilling', 'my idea !ruthless'))

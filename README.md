@@ -202,7 +202,7 @@ Rules:
 
 - `arguments:` sets the positional order and enables `$name`. Leave it out and the order of `metadata.args` is used; then use `$0`, `$1`, and so on.
 - Every argument is required unless it sets `optional: true`.
-- `!values` can be written anywhere after the command, in any order.
+- The skill command and `!values` can be written anywhere in the prompt, in any order. For example, `Please /review the redesign` shows the argument cards and asks for the missing required depth before running. Every plain word, including words before the command, belongs to the free-text argument.
 - An unknown `!value` fills the first empty open argument. If there is none, it counts as an invalid value for the first empty required strict argument, which is then asked again. Otherwise it stays in the free text.
 - Prefer single-codepoint emoji in descriptions.
 - Skills without `metadata.args` behave exactly as before.
@@ -230,6 +230,8 @@ flowchart TD
 2. **When you submit**, it intercepts the command, matches every `!value`, and asks for anything required that's missing.
 3. **Before the skill runs**, it rewrites your input to one quoted value per declared argument, with `""` for an empty optional one, so every position stays in place.
 4. **Claude Code** then fills `$name`, `$N` and `$ARGUMENTS[N]` from that string, as it does for any skill.
+
+Commands at the beginning use Claude Code's normal command hook. A skill mentioned later in the prompt is checked before submission and dispatched as a command after all required arguments are supplied; the unchecked prompt is not sent to Claude.
 
 | | Terminal | Desktop app (Code tab) |
 |---|---|---|
